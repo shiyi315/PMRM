@@ -1,0 +1,115 @@
+#####################################################################
+### R sample code for fitting Precision Mixture Risk Model (PMRM) ###
+#####################################################################
+
+### input
+### We have 5 inputs/columns: 
+### Group (i.e., patients subpopulation)
+### Drug (i.e., drug ingredient name)
+### Count_B, Count_C (see definition in Section 2.2.1 in the manuscript)
+### ADE (i.e., adverse drug event)
+
+### output
+### We generate J+4 parameters in PMRM (alpha1,beta1,alpha2,beta2,p_j), see Model 1 in Section 2.2.2
+### by EM algorithm as following
+
+
+data = cbind(Group,Drug,Count_B,Count_C,ADE)
+### i: ADE
+I = length(unique(data$ADE))
+### j: subpopulation
+Group_count = data[,c(1,5)]
+J_count = unique(Group_count)
+J = table(J_count$ADE)[[1]]
+### k: drug
+K = table(data$Group, data$ADE)
+K = as.numeric(K) 
+
+b = data$Count_B
+c = data$Count_C
+### negative log likelihood
+fun_M=function(fun_para)
+{
+ 
+ fun_alpha1 = exp(fun_para[1]) 
+ fun_beta1 = exp(fun_para[2])+2 
+ fun_alpha2 = exp(fun_para[3])
+ fun_beta2 = exp(fun_para[4])+2
+
+ fun_1=lgamma(fun_alpha1+b)-lgamma(fun_alpha1)
+ fun_2=lgamma(fun_beta1+c)-lgamma(fun_beta1)
+ fun_3=lgamma(fun_alpha1+fun_beta1+b+c)-lgamma(fun_alpha1+fun_beta1)
+ fun_4=lgamma(fun_alpha2+b)-lgamma(fun_alpha2)
+ fun_5=lgamma(fun_beta2+c)-lgamma(fun_beta2)
+ fun_6=lgamma(fun_alpha2+fun_beta2+b+c)-lgamma(fun_alpha2+fun_beta2)
+
+ ll=part_A*(fun_1+fun_2-fun_3)+part_B*(fun_4+fun_5-fun_6)
+ ll=-sum(ll)
+ ll
+}
+### EM algorithm to derive parameters
+diff=your_initial_difference
+### set your initial PMRM parameters
+Start=c(log(21),log(20),log(5),0,rep(log(2),J)) 
+Parameter=Start
+frame = data[,c(1,5)]
+
+i=1
+options(warn=-1)
+while(diff>your_threshold1 && i<your_threshold2)
+{
+ Parameter_current=Parameter 
+ 
+ alpha1 = exp(Parameter_current[1]) 
+ beta1 = exp(Parameter_current[2])+2
+ alpha2 = exp(Parameter_current[3])   
+ beta2 = exp(Parameter_current[4])+2  
+ pj = exp(Parameter_current[5:(J+4)])/(1+exp(Parameter_current[5:(J+4)]))
+ pj_long =  rep(pj,I)
+ pj_long = rep(pj_long, K) 
+
+ part1=lgamma(alpha1+b)-lgamma(alpha1)
+ part2=lgamma(beta1+c)-lgamma(beta1)
+ part3=lgamma(alpha1+beta1+b+c)-lgamma(alpha1+beta1)
+ part4=lgamma(alpha2+b)-lgamma(alpha2)
+ part5=lgamma(beta2+c)-lgamma(beta2)
+ part6=lgamma(alpha2+beta2+b+c)-lgamma(alpha2+beta2)
+
+ ### E-step
+ # conditional expectation of the missing variable z_ijk
+
+ W=1/(1+((1-pj_long)/pj_long)*exp(part4+part5-part6-(part1+part2-part3))) 
+
+ ### M-step
+ W_rep = W
+ frame_W = cbind(frame, W_rep)
+ pj_M = aggregate(W_rep~Group, data=frame_W, mean)$W_rep
+
+ part_A=W
+ part_B=1-W
+ 
+ start_M=c(Parameter_current[1:4])
+
+ res_M=nlminb(start_M,fun_M)
+ 
+ ### update Parameter
+ Parameter[1]=res_M$par[1]
+ Parameter[2]=res_M$par[2]
+ Parameter[3]=res_M$par[3]
+ Parameter[4]=res_M$par[4]
+ Parameter[5:(J+4)]=log(pj_M/(1-pj_M))
+
+ diff = abs(Parameter-Parameter_current)
+ diff_posi = which.max(diff)
+ diff = max(diff)
+
+ i=i+1
+}
+
+### output PMRM parameters
+alpha1 = exp(Parameter[1])
+beta1 = exp(Parameter[2])+2 
+alpha2 = exp(Parameter[3])
+beta2 = exp(Parameter[4])+2
+pj = exp(Parameter[5:(J+4)])/(1+exp(Parameter[5:(J+4)])) 
+
